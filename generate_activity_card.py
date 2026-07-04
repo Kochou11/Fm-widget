@@ -15,17 +15,31 @@ TEXT_COLOR = (139, 139, 158)
 HIGHLIGHT = (108, 99, 255)    
 DIVIDER_COLOR = (45, 43, 85)  
 
-def get_current_lists():
-    # Removed the "sort" argument entirely to prevent 400 Bad Request errors
+def get_user_id():
     query = '''
     query ($name: String) {
-      User(name: $name) {
-        anime: mediaList(type: ANIME, status: CURRENT, perPage: 5) {
+      User(name: $name) { id }
+    }
+    '''
+    resp = requests.post(API_URL, json={'query': query, 'variables': {'name': USERNAME}}, headers=HEADERS, timeout=15).json()
+    if 'errors' in resp:
+        print(f"Error finding user: {resp['errors']}")
+        return None
+    return resp.get('data', {}).get('User', {}).get('id')
+
+def get_current_lists(user_id):
+    # Using the "Page" query, which is the correct AniList standard
+    query = '''
+    query ($id: Int) {
+      anime: Page(page: 1, perPage: 1) {
+        mediaList(userId: $id, type: ANIME, status: CURRENT, sort: UPDATED_TIME_DESC) {
           media { coverImage { large } title { romaji english } episodes }
           progress
           updatedAt
         }
-        manga: mediaList(type: MANGA, status: CURRENT, perPage: 5) {
+      }
+      manga: Page(page: 1, perPage: 1) {
+        mediaList(userId: $id, type: MANGA, status: CURRENT, sort: UPDATED_TIME_DESC) {
           media { coverImage { large } title { romaji english } chapters }
           progress
           updatedAt
@@ -35,26 +49,18 @@ def get_current_lists():
     '''
     
     try:
-        resp = requests.post(API_URL, json={'query': query, 'variables': {'name': USERNAME}}, headers=HEADERS, timeout=15)
+        resp = requests.post(API_URL, json={'query': query, 'variables': {'id': user_id}}, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         response = resp.json()
         
-        if not response or 'errors' in response:
-            print(f"AniList API Error: {response.get('errors') if response else 'Empty Response'}")
+        if 'errors' in response:
+            print(f"AniList API Error: {response['errors']}")
             return {}
             
-        data = response.get('data', {}).get('User', {})
+        anime_data = response.get('data', {}).get('anime', {}).get('mediaList', [])
+        manga_data = response.get('data', {}).get('manga', {}).get('mediaList', [])
         
-        # Safely sort the lists in Python based on updatedAt timestamp
-        anime_list = data.get('anime') or []
-        manga_list = data.get('manga') or []
-        
-        if anime_list:
-            anime_list.sort(key=lambda x: x.get('updatedAt', 0), reverse=True)
-        if manga_list:
-            manga_list.sort(key=lambda x: x.get('updatedAt', 0), reverse=True)
-            
-        return {'anime': anime_list, 'manga': manga_list}
+        return {'anime': anime_data, 'manga': manga_data}
         
     except Exception as e:
         print(f"Network/API Error: {e}")
@@ -103,7 +109,7 @@ def create_card(data):
     draw.text((150, 20), "ANIME", font=font_header, fill=HIGHLIGHT)
     
     if anime_list and len(anime_list) > 0:
-        anime = anime_list[0] # Already sorted to be the most recently updated
+        anime = anime_list[0] 
         title = anime['media']['title'].get('romaji') or anime['media']['title'].get('english') or "Unknown"
         progress = anime['progress']
         total = anime['media'].get('episodes') or "?"
@@ -132,7 +138,7 @@ def create_card(data):
     draw.text((560, 20), "MANGA", font=font_header, fill=HIGHLIGHT)
     
     if manga_list and len(manga_list) > 0:
-        manga = manga_list[0] # Already sorted to be the most recently updated
+        manga = manga_list[0] 
         title = manga['media']['title'].get('romaji') or manga['media']['title'].get('english') or "Unknown"
         progress = manga['progress']
         total = manga['media'].get('chapters') or "?"
@@ -161,9 +167,14 @@ def create_card(data):
 
 if __name__ == "__main__":
     print(f"Fetching activity for {USERNAME}...")
-    data = get_current_lists()
+    user_id = get_user_id()
     
-    if data:
-        create_card(data)
+    if user_id:
+        print(f"Found User ID: {user_id}. Fetching lists...")
+        data = get_current_lists(user_id)
+        if data:
+            create_card(data)
+        else:
+            print("Skipping card generation due to API error.")
     else:
-        print("Skipping card generation due to API error.")
+        print("Failed to get User ID.")
