@@ -30,6 +30,6 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add anilist_heatmap.svg
+          git add anilist_heatmap.png
           git diff --cached --quiet || git commit -m "Update weekly AniList heatmap"
           git push
