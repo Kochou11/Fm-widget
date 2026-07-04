@@ -28,9 +28,7 @@ def get_artist_image_from_deezer(artist_name):
             img_url = response['data'][0].get('picture_xl')
             
             if img_url:
-                # Filter out the escaped slashes
                 img_url = img_url.replace('\\/', '/')
-                # Force 100% lossless quality
                 img_url = img_url.replace('-80-', '-100-')
                 return img_url
     except Exception as e:
@@ -39,15 +37,33 @@ def get_artist_image_from_deezer(artist_name):
     return None
 
 def create_collage(artist_names):
-    # 1200x1200 canvas (400px per square) for ultra-crisp phone screens
+    # 1200x1200 canvas (400px per square)
     collage = Image.new('RGB', (1200, 1200), (30, 30, 30)) 
     size = 400
 
-    # Try to load a clean font. Size 24 is small but very readable at 400px scale.
-    try:
-        font = ImageFont.truetype("arial.ttf", 24)
-    except:
-        font = ImageFont.load_default()
+    # --- BULLETPROOF FONT LOADING FOR GITHUB SERVERS ---
+    font = None
+    # Try common Linux fonts found on GitHub Actions (Ubuntu)
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+    ]
+    
+    for path in font_paths:
+        try:
+            # Size 28 is big, bold, and very readable on a 400px square
+            font = ImageFont.truetype(path, 28)
+            break
+        except:
+            continue
+            
+    if not font:
+        # Ultimate fallback if Linux fonts are missing (rare)
+        try:
+            font = ImageFont.load_default(size=28)
+        except TypeError:
+            font = ImageFont.load_default()
+    # ---------------------------------------------------
 
     for i, artist_name in enumerate(artist_names):
         x = (i % 3) * size
@@ -62,32 +78,29 @@ def create_collage(artist_names):
                 img = Image.open(BytesIO(img_response.content))
                 img = img.resize((size, size), Image.LANCZOS)
                 
-                # --- NEW: ADD TEXT OVERLAY ---
+                # Add Text Overlay
                 draw = ImageDraw.Draw(img)
-                # Position: 15px from left, 360px from top (places it nicely at the bottom)
-                text_position = (15, 360) 
+                text_position = (15, 355) 
                 
-                # Draw the text: White fill with a 2px black outline for perfect readability
+                # Draw text with a thick black outline for perfect readability
                 draw.text(
                     text_position, 
                     artist_name, 
                     fill="white", 
                     font=font, 
-                    stroke_width=2, 
+                    stroke_width=3, 
                     stroke_fill="black"
                 )
-                # ------------------------------
                 
                 collage.paste(img, (x, y))
-                print(f"  -> Ultra-HD Success with text!")
+                print(f"  -> Success with bold text!")
             except Exception as e:
-                print(f"  -> Failed to download.")
+                print(f"  -> Error: {e}")
         else:
             print(f"  -> Not found on Deezer.")
 
-    # Save the final image
     collage.save('lastfm_monthly.png')
-    print("\nUltra-HD Collage with names saved successfully!")
+    print("\nHD Collage with bold names saved!")
 
 if __name__ == "__main__":
     artist_names = get_monthly_artist_names()
