@@ -1,43 +1,61 @@
+import os
 import requests
+import random
 from PIL import Image
 from io import BytesIO
 
-# Headers to prevent CDN blocking
+# We can reuse your AniList secret if you want, or just leave it blank for general popular anime
+USERNAME = os.environ.get('ANILIST_USERNAME', '')
+API_URL = 'https://graphql.anilist.co'
+
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
 }
 
-def get_random_image_url():
-    # API 1: Waifu.pics
+def get_anilist_cover():
+    print("Fetching random anime from AniList API...")
+    
+    # Pick a random page out of the top 1000 most popular anime
+    random_page = random.randint(1, 40)
+    
+    query = '''
+    query ($page: Int) {
+      Page(page: $page, perPage: 25) {
+        media(sort: POPULARITY_DESC, type: ANIME, isAdult: false) {
+          coverImage { extraLarge }
+          title { romaji }
+        }
+      }
+    }
+    '''
+    
     try:
-        print("Trying Waifu.pics API...")
-        response = requests.get("https://api.waifu.pics/sfw/waifu", headers=HEADERS, timeout=10).json()
-        return response.get('url')
+        response = requests.post(API_URL, json={'query': query, 'variables': {'page': random_page}}, headers=HEADERS, timeout=10).json()
+        media_list = response.get('data', {}).get('Page', {}).get('media', [])
+        
+        if media_list:
+            # Pick a random anime from that page and grab its cover
+            random_media = random.choice(media_list)
+            title = random_media.get('title', {}).get('romaji', 'Unknown')
+            img_url = random_media.get('coverImage', {}).get('extraLarge')
+            print(f"Selected anime: {title}")
+            return img_url
     except Exception as e:
-        print(f"Waifu.pics failed: {e}")
-
-    # API 2: Nekos.best (Fallback)
-    try:
-        print("Trying Nekos.best API as fallback...")
-        response = requests.get("https://api.nekos.best/api/v2/neko?amount=1", headers=HEADERS, timeout=10).json()
-        if response.get('results'):
-            return response['results'][0].get('url')
-    except Exception as e:
-        print(f"Nekos.best failed: {e}")
-
+        print(f"AniList API Error: {e}")
+        
     return None
 
 def create_card(img_url):
     if not img_url:
-        print("ERROR: Could not fetch image URL from any API.")
+        print("ERROR: Could not fetch image URL.")
         return False
 
-    print(f"Downloading image from: {img_url}")
+    print(f"Downloading cover art...")
     try:
         response = requests.get(img_url, headers=HEADERS, timeout=15)
         img = Image.open(BytesIO(response.content)).convert("RGBA")
     except Exception as e:
-        print(f"ERROR: Failed to download image file: {e}")
+        print(f"ERROR: Failed to download image: {e}")
         return False
         
     # Target card dimensions (Portrait)
@@ -45,7 +63,7 @@ def create_card(img_url):
     w, h = img.size
 
     # --- SMART CROP LOGIC ---
-    # Crops the center of the image to perfectly fill the canvas without stretching
+    # AniList covers are usually portrait, but this ensures it perfectly fits 400x600
     ratio = max(target_w / w, target_h / h)
     new_w, new_h = int(w * ratio), int(h * ratio)
     img = img.resize((new_w, new_h), Image.LANCZOS)
@@ -63,11 +81,11 @@ def create_card(img_url):
 
     # Save the final image
     final_canvas.save('waifu_card.png')
-    print("Waifu card generated successfully!")
+    print("Anime cover card generated successfully!")
     return True
 
 if __name__ == "__main__":
-    url = get_random_image_url()
+    url = get_anilist_cover()
     success = create_card(url)
     
     if not success:
