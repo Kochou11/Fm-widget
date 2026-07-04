@@ -9,11 +9,11 @@ API_URL = 'https://graphql.anilist.co'
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 
 # Theme Colors
-BG_COLOR = (22, 22, 26)       # AniList Dark Background
-BORDER_COLOR = (45, 43, 85)   # Subtle Purple Border
-TEXT_COLOR = (139, 139, 158)  # Grey Text
-HIGHLIGHT = (108, 99, 255)    # AniList Bright Blue
-DIVIDER_COLOR = (45, 43, 85)  # Line between Anime/Manga
+BG_COLOR = (22, 22, 26)       
+BORDER_COLOR = (45, 43, 85)   
+TEXT_COLOR = (139, 139, 158)  
+HIGHLIGHT = (108, 99, 255)    
+DIVIDER_COLOR = (45, 43, 85)  
 
 def get_current_lists():
     query = '''
@@ -32,11 +32,24 @@ def get_current_lists():
       }
     }
     '''
-    response = requests.post(API_URL, json={'query': query, 'variables': {'name': USERNAME}}, headers=HEADERS).json()
-    return response.get('data', {}).get('User', {})
+    
+    try:
+        # Added a timeout and explicit response checking
+        resp = requests.post(API_URL, json={'query': query, 'variables': {'name': USERNAME}}, headers=HEADERS, timeout=15)
+        resp.raise_for_status() # Forces an error if AniList returns a 429/500 etc
+        response = resp.json()
+        
+        # If AniList returns a JSON error, print it instead of crashing
+        if not response or 'errors' in response:
+            print(f"AniList API Error: {response.get('errors') if response else 'Empty Response'}")
+            return {}
+            
+        return response.get('data', {}).get('User', {})
+    except Exception as e:
+        print(f"Network/API Error: {e}")
+        return {}
 
 def draw_text_wrapped(draw, text, x, y, max_width, font, fill_color):
-    # Wraps long anime titles so they don't overflow the box
     words = text.split()
     lines = []
     current_line = []
@@ -54,19 +67,16 @@ def draw_text_wrapped(draw, text, x, y, max_width, font, fill_color):
         
     for i, line in enumerate(lines):
         draw.text((x, y + (i * 18)), line, font=font, fill=fill_color)
-    return len(lines) * 18 # Return height used
+    return len(lines) * 18 
 
 def create_card(data):
-    # Canvas size (Wide banner style)
     width, height = 820, 200
     img = Image.new('RGB', (width, height), BG_COLOR)
     draw = ImageDraw.Draw(img)
     
-    # Draw borders
     draw.rectangle([0, 0, width-1, height-1], outline=BORDER_COLOR, width=2)
     draw.line([(410, 15), (410, 185)], fill=DIVIDER_COLOR, width=2)
 
-    # Load Fonts
     try:
         font_header = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
         font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
@@ -77,7 +87,7 @@ def create_card(data):
     now = time.time()
     thirty_mins_ago = now - (30 * 60)
 
-    # --- PROCESS ANIME (Left Side) ---
+    # --- PROCESS ANIME ---
     anime_list = data.get('currentAnime')
     draw.text((150, 20), "ANIME", font=font_header, fill=HIGHLIGHT)
     
@@ -88,7 +98,6 @@ def create_card(data):
         total = anime['media'].get('episodes') or "?"
         updated_at = anime['updatedAt']
         
-        # Draw Cover
         try:
             cover_url = anime['media']['coverImage']['large']
             cover_resp = requests.get(cover_url, headers=HEADERS, timeout=10)
@@ -97,11 +106,9 @@ def create_card(data):
             img.paste(cover_img, (20, 15), cover_img)
         except: pass
         
-        # Draw Text
         draw_text_wrapped(draw, title, 150, 45, 240, font_title, "white")
         draw.text((150, 95), f"Ep {progress} / {total}", font=font_status, fill=TEXT_COLOR)
         
-        # 30-Minute Logic
         if updated_at > thirty_mins_ago:
             draw.text((150, 120), "▶ Currently Watching", font=font_status, fill=HIGHLIGHT)
         else:
@@ -109,7 +116,7 @@ def create_card(data):
     else:
         draw.text((150, 60), "No anime in list", font=font_status, fill=TEXT_COLOR)
 
-    # --- PROCESS MANGA (Right Side) ---
+    # --- PROCESS MANGA ---
     manga_list = data.get('currentManga')
     draw.text((560, 20), "MANGA", font=font_header, fill=HIGHLIGHT)
     
@@ -120,7 +127,6 @@ def create_card(data):
         total = manga['media'].get('chapters') or "?"
         updated_at = manga['updatedAt']
         
-        # Draw Cover
         try:
             cover_url = manga['media']['coverImage']['large']
             cover_resp = requests.get(cover_url, headers=HEADERS, timeout=10)
@@ -129,11 +135,9 @@ def create_card(data):
             img.paste(cover_img, (430, 15), cover_img)
         except: pass
         
-        # Draw Text
         draw_text_wrapped(draw, title, 560, 45, 240, font_title, "white")
         draw.text((560, 95), f"Ch {progress} / {total}", font=font_status, fill=TEXT_COLOR)
         
-        # 30-Minute Logic
         if updated_at > thirty_mins_ago:
             draw.text((560, 120), "▶ Currently Reading", font=font_status, fill=HIGHLIGHT)
         else:
@@ -142,9 +146,13 @@ def create_card(data):
         draw.text((560, 60), "No manga in list", font=font_status, fill=TEXT_COLOR)
 
     img.save('current_activity.png')
-    print("Activity card generated!")
+    print("Activity card generated successfully!")
 
 if __name__ == "__main__":
     print(f"Fetching activity for {USERNAME}...")
     data = get_current_lists()
-    create_card(data)
+    
+    if data:
+        create_card(data)
+    else:
+        print("Skipping card generation due to API error.")
