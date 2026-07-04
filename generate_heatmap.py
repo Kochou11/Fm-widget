@@ -1,5 +1,6 @@
 import os
 import requests
+import time
 from datetime import datetime, timedelta
 
 USERNAME = os.environ['ANILIST_USERNAME']
@@ -21,10 +22,14 @@ def get_user_id():
     }
     '''
     response = requests.post(API_URL, json={'query': query, 'variables': {'name': USERNAME}}).json()
-    return response['data']['User']['id']
+    
+    if 'errors' in response:
+        print(f"Error finding user ID: {response['errors']}")
+        return None
+        
+    return response.get('data', {}).get('User', {}).get('id')
 
 def get_activity_data(user_id):
-    # We will fetch up to 50 pages (~1250 activities) to ensure we cover a full year
     activity_counts = {}
     has_next_page = True
     page = 1
@@ -45,11 +50,26 @@ def get_activity_data(user_id):
         }
         '''
         variables = {'userId': user_id, 'page': page}
-        response = requests.post(API_URL, json={'query': query, 'variables': variables}).json()
+        response_json = requests.post(API_URL, json={'query': query, 'variables': variables}).json()
         
-        for activity in response['data']['Page']['activities']:
-            timestamp = activity['createdAt']
+        # SAFETY CHECK: If AniList returns an error, print it and stop to prevent crashing
+        if 'errors' in response_json:
+            print(f"API Error on page {page}: {response_json['errors']}")
+            break
             
+        # SAFETY CHECK: If data is missing, stop
+        page_data = response_json.get('data', {}).get('Page')
+        if not page_data:
+            print(f"Missing page data on page {page}. Stopping.")
+            break
+            
+        activities = page_data.get('activities') or []
+        
+        for activity in activities:
+            timestamp = activity.get('createdAt')
+            if not timestamp:
+                continue
+                
             # Stop fetching if we go further back than 1 year
             if timestamp < one_year_ago:
                 has_next_page = False
@@ -59,17 +79,19 @@ def get_activity_data(user_id):
             date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
             activity_counts[date_str] = activity_counts.get(date_str, 0) + 1
 
-        has_next_page = response['data']['Page']['pageInfo']['hasNext_page'] and has_next_page
+        has_next_page = page_data.get('pageInfo', {}).get('hasNextPage', False) and has_next_page
         page += 1
+        
+        # Be polite to AniList's servers: wait half a second between pages
+        time.sleep(0.5)
 
     return activity_counts
 
 def generate_svg(activity_counts):
-    # SVG Dimensions (Standard GitHub heatmap sizing)
     cell_size = 11
     cell_gap = 2
-    width = 53 * (cell_size + cell_gap) # 53 weeks
-    height = 7 * (cell_size + cell_gap)  # 7 days
+    width = 53 * (cell_size + cell_gap) 
+    height = 7 * (cell_size + cell_gap)  
     
     svg_lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
@@ -83,14 +105,12 @@ def generate_svg(activity_counts):
         current_date = start_date + timedelta(days=i)
         date_str = current_date.strftime('%Y-%m-%d')
         
-        # Calculate grid position
-        day_of_week = current_date.weekday() # Monday is 0
+        day_of_week = current_date.weekday() 
         week_number = (start_date + timedelta(days=i)).isocalendar()[1] - start_date.isocalendar()[1]
         
         x = (week_number + 1) * (cell_size + cell_gap)
         y = day_of_week * (cell_size + cell_gap)
 
-        # Determine color based on activity count
         count = activity_counts.get(date_str, 0)
         if count == 0:
             color = COLORS[0]
@@ -107,7 +127,6 @@ def generate_svg(activity_counts):
 
     svg_lines.append('</svg>')
     
-    # Save the SVG
     with open('anilist_heatmap.svg', 'w') as f:
         f.write('\n'.join(svg_lines))
     print(f"Generated heatmap with {len(activity_counts)} active days.")
@@ -115,5 +134,10 @@ def generate_svg(activity_counts):
 if __name__ == "__main__":
     print(f"Fetching data for {USERNAME}...")
     user_id = get_user_id()
-    counts = get_activity_data(user_id)
-    generate_svg(counts)
+    
+    if user_id:
+        print(f"Found User ID: {user_id}. Fetching activity pages...")
+        counts = get_activity_data(user_id)
+        generate_svg(counts)
+    else:
+        print("Failed to get User ID. Check your ANILIST_USERNAME secret.")
