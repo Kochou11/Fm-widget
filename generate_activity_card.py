@@ -16,15 +16,16 @@ HIGHLIGHT = (108, 99, 255)
 DIVIDER_COLOR = (45, 43, 85)  
 
 def get_current_lists():
+    # Removed the "sort" argument entirely to prevent 400 Bad Request errors
     query = '''
     query ($name: String) {
       User(name: $name) {
-        currentAnime: mediaList(type: ANIME, status: CURRENT, sort: UPDATED_TIME_DESC, perPage: 1) {
+        anime: mediaList(type: ANIME, status: CURRENT, perPage: 5) {
           media { coverImage { large } title { romaji english } episodes }
           progress
           updatedAt
         }
-        currentManga: mediaList(type: MANGA, status: CURRENT, sort: UPDATED_TIME_DESC, perPage: 1) {
+        manga: mediaList(type: MANGA, status: CURRENT, perPage: 5) {
           media { coverImage { large } title { romaji english } chapters }
           progress
           updatedAt
@@ -34,17 +35,27 @@ def get_current_lists():
     '''
     
     try:
-        # Added a timeout and explicit response checking
         resp = requests.post(API_URL, json={'query': query, 'variables': {'name': USERNAME}}, headers=HEADERS, timeout=15)
-        resp.raise_for_status() # Forces an error if AniList returns a 429/500 etc
+        resp.raise_for_status()
         response = resp.json()
         
-        # If AniList returns a JSON error, print it instead of crashing
         if not response or 'errors' in response:
             print(f"AniList API Error: {response.get('errors') if response else 'Empty Response'}")
             return {}
             
-        return response.get('data', {}).get('User', {})
+        data = response.get('data', {}).get('User', {})
+        
+        # Safely sort the lists in Python based on updatedAt timestamp
+        anime_list = data.get('anime') or []
+        manga_list = data.get('manga') or []
+        
+        if anime_list:
+            anime_list.sort(key=lambda x: x.get('updatedAt', 0), reverse=True)
+        if manga_list:
+            manga_list.sort(key=lambda x: x.get('updatedAt', 0), reverse=True)
+            
+        return {'anime': anime_list, 'manga': manga_list}
+        
     except Exception as e:
         print(f"Network/API Error: {e}")
         return {}
@@ -88,11 +99,11 @@ def create_card(data):
     thirty_mins_ago = now - (30 * 60)
 
     # --- PROCESS ANIME ---
-    anime_list = data.get('currentAnime')
+    anime_list = data.get('anime', [])
     draw.text((150, 20), "ANIME", font=font_header, fill=HIGHLIGHT)
     
     if anime_list and len(anime_list) > 0:
-        anime = anime_list[0]
+        anime = anime_list[0] # Already sorted to be the most recently updated
         title = anime['media']['title'].get('romaji') or anime['media']['title'].get('english') or "Unknown"
         progress = anime['progress']
         total = anime['media'].get('episodes') or "?"
@@ -117,11 +128,11 @@ def create_card(data):
         draw.text((150, 60), "No anime in list", font=font_status, fill=TEXT_COLOR)
 
     # --- PROCESS MANGA ---
-    manga_list = data.get('currentManga')
+    manga_list = data.get('manga', [])
     draw.text((560, 20), "MANGA", font=font_header, fill=HIGHLIGHT)
     
     if manga_list and len(manga_list) > 0:
-        manga = manga_list[0]
+        manga = manga_list[0] # Already sorted to be the most recently updated
         title = manga['media']['title'].get('romaji') or manga['media']['title'].get('english') or "Unknown"
         progress = manga['progress']
         total = manga['media'].get('chapters') or "?"
