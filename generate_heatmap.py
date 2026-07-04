@@ -41,7 +41,7 @@ def get_activity_data(user_id):
         query ($userId: Int, $page: Int) {
           Page(page: $page, perPage: 25) {
             pageInfo { hasNextPage }
-            activities(userId: $userId, type: ANIME_LIST, sort: CREATED_AT_DESC) {
+            activities(userId: $userId, type: ANIME_LIST, sort: ID_DESC) {
               ... on ListActivity {
                 createdAt
               }
