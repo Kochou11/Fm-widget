@@ -1,31 +1,51 @@
 import requests
-from PIL import Image, ImageDraw
+from PIL import Image
 from io import BytesIO
 
-# API Endpoint for SFW anime portraits
-API_URL = "https://api.waifu.pics/sfw/waifu"
-
-# Standard headers to prevent CDN blocking
+# Headers to prevent CDN blocking
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
 }
 
-def get_random_waifu_url():
-    response = requests.get(API_URL, headers=HEADERS).json()
-    return response.get('url')
+def get_random_image_url():
+    # API 1: Waifu.pics
+    try:
+        print("Trying Waifu.pics API...")
+        response = requests.get("https://api.waifu.pics/sfw/waifu", headers=HEADERS, timeout=10).json()
+        return response.get('url')
+    except Exception as e:
+        print(f"Waifu.pics failed: {e}")
+
+    # API 2: Nekos.best (Fallback)
+    try:
+        print("Trying Nekos.best API as fallback...")
+        response = requests.get("https://api.nekos.best/api/v2/neko?amount=1", headers=HEADERS, timeout=10).json()
+        if response.get('results'):
+            return response['results'][0].get('url')
+    except Exception as e:
+        print(f"Nekos.best failed: {e}")
+
+    return None
 
 def create_card(img_url):
+    if not img_url:
+        print("ERROR: Could not fetch image URL from any API.")
+        return False
+
     print(f"Downloading image from: {img_url}")
-    response = requests.get(img_url, headers=HEADERS, timeout=15)
-    img = Image.open(BytesIO(response.content)).convert("RGBA")
-    
+    try:
+        response = requests.get(img_url, headers=HEADERS, timeout=15)
+        img = Image.open(BytesIO(response.content)).convert("RGBA")
+    except Exception as e:
+        print(f"ERROR: Failed to download image file: {e}")
+        return False
+        
     # Target card dimensions (Portrait)
     target_w, target_h = 400, 600
     w, h = img.size
 
     # --- SMART CROP LOGIC ---
-    # This ensures the image is never stretched or skewed. 
-    # It crops the center of the image to perfectly fill our 400x600 canvas.
+    # Crops the center of the image to perfectly fill the canvas without stretching
     ratio = max(target_w / w, target_h / h)
     new_w, new_h = int(w * ratio), int(h * ratio)
     img = img.resize((new_w, new_h), Image.LANCZOS)
@@ -35,7 +55,6 @@ def create_card(img_url):
     img = img.crop((left, top, left + target_w, top + target_h))
 
     # --- ADD AESTHETIC BORDER ---
-    # Creates a sleek, dark border to make it look like a physical card
     border_size = 6
     border_color = (30, 30, 40, 255) # Dark AniList theme color
     
@@ -45,10 +64,11 @@ def create_card(img_url):
     # Save the final image
     final_canvas.save('waifu_card.png')
     print("Waifu card generated successfully!")
+    return True
 
 if __name__ == "__main__":
-    url = get_random_waifu_url()
-    if url:
-        create_card(url)
-    else:
-        print("Failed to fetch URL from API.")
+    url = get_random_image_url()
+    success = create_card(url)
+    
+    if not success:
+        print("Exiting without updating image to prevent breaking current card.")
