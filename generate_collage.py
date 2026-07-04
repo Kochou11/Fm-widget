@@ -1,6 +1,6 @@
 import os
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 
 # Get Last.fm secrets
@@ -25,12 +25,13 @@ def get_artist_image_from_deezer(artist_name):
         response = requests.get(search_url, headers=HEADERS, timeout=10).json()
         
         if response.get('data') and len(response['data']) > 0:
-            # CHANGED: Use 'picture_xl' for 1000x1000 HD quality!
             img_url = response['data'][0].get('picture_xl')
             
             if img_url:
                 # Filter out the escaped slashes
                 img_url = img_url.replace('\\/', '/')
+                # Force 100% lossless quality
+                img_url = img_url.replace('-80-', '-100-')
                 return img_url
     except Exception as e:
         print(f"Deezer error for {artist_name}: {e}")
@@ -38,10 +39,15 @@ def get_artist_image_from_deezer(artist_name):
     return None
 
 def create_collage(artist_names):
-    # CHANGED: Canvas is now 900x900 pixels (HD size)
-    collage = Image.new('RGB', (900, 900), (30, 30, 30)) 
-    # CHANGED: Each square is now 300x300 pixels
-    size = 300
+    # 1200x1200 canvas (400px per square) for ultra-crisp phone screens
+    collage = Image.new('RGB', (1200, 1200), (30, 30, 30)) 
+    size = 400
+
+    # Try to load a clean font. Size 24 is small but very readable at 400px scale.
+    try:
+        font = ImageFont.truetype("arial.ttf", 24)
+    except:
+        font = ImageFont.load_default()
 
     for i, artist_name in enumerate(artist_names):
         x = (i % 3) * size
@@ -54,18 +60,34 @@ def create_collage(artist_names):
             try:
                 img_response = requests.get(img_url, headers=HEADERS, timeout=10)
                 img = Image.open(BytesIO(img_response.content))
-                # Resize to the new 300x300 dimensions
                 img = img.resize((size, size), Image.LANCZOS)
+                
+                # --- NEW: ADD TEXT OVERLAY ---
+                draw = ImageDraw.Draw(img)
+                # Position: 15px from left, 360px from top (places it nicely at the bottom)
+                text_position = (15, 360) 
+                
+                # Draw the text: White fill with a 2px black outline for perfect readability
+                draw.text(
+                    text_position, 
+                    artist_name, 
+                    fill="white", 
+                    font=font, 
+                    stroke_width=2, 
+                    stroke_fill="black"
+                )
+                # ------------------------------
+                
                 collage.paste(img, (x, y))
-                print(f"  -> HD Success!")
+                print(f"  -> Ultra-HD Success with text!")
             except Exception as e:
                 print(f"  -> Failed to download.")
         else:
             print(f"  -> Not found on Deezer.")
 
-    # Save the new HD image
-    collage.save('lastfm_monthly.png', quality=95)
-    print("\nHD Collage saved successfully!")
+    # Save the final image
+    collage.save('lastfm_monthly.png')
+    print("\nUltra-HD Collage with names saved successfully!")
 
 if __name__ == "__main__":
     artist_names = get_monthly_artist_names()
