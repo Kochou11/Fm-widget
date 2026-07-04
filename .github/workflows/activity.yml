@@ -1,0 +1,35 @@
+name: Update Current Activity Status
+
+on:
+  schedule:
+    # Runs every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Allows manual testing
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests Pillow
+
+      - name: Generate Activity Card
+        env:
+          ANILIST_USERNAME: ${{ secrets.ANILIST_USERNAME }}
+        run: python generate_activity_card.py
+
+      - name: Commit and Push if Changed
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add current_activity.png
+          git diff --cached --quiet || git commit -m "Update current watching/reading status"
+          git push
